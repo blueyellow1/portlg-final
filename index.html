@@ -1,0 +1,176 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PORTLG | Smart Contract Security</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0b1220;
+      color: white;
+      text-align: center;
+    }
+    header { background: #15243d; padding: 20px; }
+    main { max-width: 650px; margin: 35px auto; padding: 15px; }
+    .panel {
+      background: #192943;
+      padding: 24px;
+      margin: 18px 0;
+      border-radius: 12px;
+    }
+    button {
+      background: #20a8e0;
+      color: white;
+      padding: 12px 18px;
+      border: none;
+      border-radius: 8px;
+      margin: 6px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    #txStatus, #walletAddress { overflow-wrap: anywhere; }
+    a { color: #6dd7ff; }
+    footer { padding: 25px; color: #aab6c9; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>🛡️ PORTLG</h2>
+    <p>Portaldot V3 Testnet</p>
+  </header>
+
+  <main>
+    <h1>Smart Contract Security Guardrail</h1>
+    <p>Emergency controls for blockchain operations.</p>
+
+    <section class="panel">
+      <h2>Wallet Connection</h2>
+      <button id="connectBtn">Connect MetaMask</button>
+      <p id="walletAddress">Wallet not connected</p>
+    </section>
+
+    <section class="panel">
+      <h2>Contract Status</h2>
+      <p id="contractStatus">Not connected</p>
+      <p id="ownerAddress"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Security Controls</h2>
+      <button id="pauseBtn" disabled>Pause</button>
+      <button id="unpauseBtn" disabled>Unpause</button>
+      <button id="actionBtn" disabled>Protected Action</button>
+    </section>
+
+    <section class="panel">
+      <h2>Transaction Activity</h2>
+      <p id="txStatus">No transaction submitted</p>
+      <a id="txLink" target="_blank" rel="noopener" hidden>
+        View Transaction
+      </a>
+    </section>
+  </main>
+
+  <footer>
+    PORTLG | Testnet Demonstration
+    <p>Experimental and unaudited. Do not use real funds.</p>
+  </footer>
+
+  <script>
+    const CONTRACT_ADDRESS = "0x44406CD3e7ccE420c316D015FEE74303F16629E5";
+    const CHAIN_ID = 420420777n;
+    const EXPLORER = "https://scanner-testnet-v3.portaldot.dev";
+
+    const ABI = [
+      "function owner() view returns (address)",
+      "function paused() view returns (bool)",
+      "function pause()",
+      "function unpause()",
+      "function protectedAction()"
+    ];
+
+    let provider, signer, contract, wallet;
+    const $ = id => document.getElementById(id);
+
+    function status(message) {
+      $("txStatus").textContent = message;
+    }
+
+    async function refresh() {
+      const owner = await contract.owner();
+      const paused = await contract.paused();
+
+      $("contractStatus").textContent = paused ? "Paused" : "Active";
+      $("ownerAddress").textContent = "Owner: " + owner;
+
+      const isOwner = wallet.toLowerCase() === owner.toLowerCase();
+      $("pauseBtn").disabled = !isOwner || paused;
+      $("unpauseBtn").disabled = !isOwner || !paused;
+      $("actionBtn").disabled = paused;
+    }
+
+    async function connect() {
+      try {
+        if (!window.ethereum) throw Error("Install MetaMask first.");
+        if (!window.ethers) throw Error("Could not load ethers library.");
+
+        provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+
+        const network = await provider.getNetwork();
+        if (network.chainId !== CHAIN_ID) {
+          throw Error("Select Portaldot V3 Testnet in MetaMask.");
+        }
+
+        signer = await provider.getSigner();
+        wallet = await signer.getAddress();
+
+        const code = await provider.getCode(CONTRACT_ADDRESS);
+        if (code === "0x") throw Error("Contract not found on this network.");
+
+        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+        $("walletAddress").textContent = wallet;
+        await refresh();
+        status("Wallet connected.");
+      } catch (error) {
+        status(error.shortMessage || error.message);
+      }
+    }
+
+    async function transact(method) {
+      try {
+        if (!contract) throw Error("Connect MetaMask first.");
+        status("Waiting for MetaMask confirmation...");
+        $("txLink").hidden = true;
+
+        const tx = await contract[method]();
+        status("Transaction submitted: " + tx.hash);
+        $("txLink").href = EXPLORER + "/tx/" + tx.hash;
+        $("txLink").hidden = false;
+
+        const receipt = await tx.wait();
+        if (receipt.status !== 1) throw Error("Transaction failed.");
+
+        status("Transaction confirmed: " + tx.hash);
+        await refresh();
+      } catch (error) {
+        status(error.shortMessage || error.message);
+      }
+    }
+
+    $("connectBtn").onclick = connect;
+    $("pauseBtn").onclick = () => transact("pause");
+    $("unpauseBtn").onclick = () => transact("unpause");
+    $("actionBtn").onclick = () => transact("protectedAction");
+
+    if (window.ethereum) {
+      window.ethereum.on("accountsChanged", () => location.reload());
+      window.ethereum.on("chainChanged", () => location.reload());
+    }
+  </script>
+</body>
+</html>
